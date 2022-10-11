@@ -11,10 +11,6 @@ static void unsupported(char *s, uint32_t n) {
     printf("unsupported %s 0x%x\n", s, n);
     exit(-1);
 }
-static void unsupported(char *s, uint32_t n) {
-    printf("unsupported %s 0x%x\n", s, n);
-    exit(-1);
-}
 
 static uint32_t get_rd(uint32_t iw) {
     return get_bits(iw, 7, 5);
@@ -262,7 +258,10 @@ void emu_s_type(rv_state *rsp, uint32_t iw) {
 }
 
 static void rv_one(rv_state *state) {
-    uint32_t iw = *((uint32_t*) state->pc);
+    uint32_t iw;
+
+    //iw = *((uint32_t*) state->pc);
+    iw = cache_lookup(&state->i_cache, (uint64_t) state->pc);
     uint32_t opcode = get_bits(iw, 0, 7);
     
 #if DEBUG

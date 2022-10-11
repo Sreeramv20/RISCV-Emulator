@@ -80,7 +80,8 @@ uint32_t cache_lookup_dm(struct cache_st *csp, uint64_t addr) {
     struct cache_slot_st *slot;
     uint32_t data = 0;
 
-    b_index = 0; // Need to change for block size > 1
+    b_index = (addr>>2)&csp->block_mask; //drop the 2 oldest bits
+    // Need to change for block size > 1
     index = (addr >> (csp->block_bits + 2)) & csp->index_mask;
     tag = addr >> (csp->index_bits + csp->block_bits + 2);
 
@@ -110,8 +111,17 @@ uint32_t cache_lookup_dm(struct cache_st *csp, uint64_t addr) {
         }
         slot->valid = 1;
         slot->tag = tag;
-
+	slot->block[b_index] = *((uint32_t *) addr);//sets the block to the value at address
         // Need to change for block size > 1
+	// uint64_t addr16 = (addr - (addr % 16));
+	for(int i=0;i<b_index;i++){
+	   addr=addr-4;//4 bytes
+	}
+
+	for(int i = 0; i < csp->block_size; i++){
+		slot->block[i]=*((uint32_t *)addr);
+		addr+=4;
+	}
         data = slot->block[b_index];
     }
     
@@ -135,7 +145,8 @@ uint32_t cache_lookup_sa(struct cache_st *csp, uint64_t addr) {
 
     uint64_t tag = addr >> (csp->index_bits + csp->block_bits + 2);
 
-    uint64_t b_index = 1; // Need to change for block size > 1
+    uint64_t b_index = (addr>>2)&csp->block_mask;; // Need to change for block size > 1
+			  
 
     uint64_t b_base;
     int set_index = (addr >> (csp->block_bits + 2)) & csp->index_mask;
@@ -144,11 +155,21 @@ uint32_t cache_lookup_sa(struct cache_st *csp, uint64_t addr) {
     struct cache_slot_st *slot = NULL;
     struct cache_slot_st *slot_found = NULL;
     struct cache_slot_st *slot_invalid = NULL;
-
+     
+    uint32_t leastrecent = 4294967295;
+    uint32_t mostrecent = 0;
+    uint32_t leastrecentindex = 0;
     // Check each slot in the set
     for (int i = 0; i < 4; i += 1) {
         slot = &csp->slots[set_base + i];
-        if (slot->valid) {
+	if(slot->timestamp < leastrecent){
+		leastrecent = slot->timestamp;
+		leastrecentindex = i; //keeps track of which slot has recently used
+		}
+	if(slot->timestamp > mostrecent){
+		mostrecent = slot->timestamp;
+		}
+       	if (slot->valid) {
             if (tag == slot->tag) {
                 verbose("  cache tag hit for set %d way %d tag %X addr %lX\n",
                         set_index, i, tag, addr);
@@ -173,7 +194,7 @@ uint32_t cache_lookup_sa(struct cache_st *csp, uint64_t addr) {
             csp->misses_cold += 1;
         } else {
             // Always pick first slot in set - CHANGE TO LRU
-            slot = &(csp->slots[set_base]);
+            slot = &(csp->slots[set_base+leastrecentindex]);
 
             verbose("  cache tag (%X) miss for set %d tag %X addr %X (evict address %X)\n",
                     slot->tag, set_index, tag, addr, 
@@ -186,9 +207,20 @@ uint32_t cache_lookup_sa(struct cache_st *csp, uint64_t addr) {
     }
 
     if (!hit) {
-        // Need to change for block size > 1        
-        slot->block[b_index] = *((uint32_t *) addr);
+      
+  // Need to change for block size > 1        
+	for(int i=0;i<b_index;i++){
+	   addr=addr-4;//4 bytes
+	}
+
+	for(int i = 0; i < csp->block_size; i++){
+		slot->block[i]=*((uint32_t *)addr);
+		addr+=4;
+	}
+        // slot->block[b_index] = *((uint32_t *) addr)
+	
         slot->tag = tag;
+	slot->timestamp=mostrecent+1;//sets it to mostrecent
         slot->valid = true;
     }
 
