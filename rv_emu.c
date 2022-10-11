@@ -67,6 +67,8 @@ static void run_r_format(rv_state *s, uint32_t iw) {
 }
 
 static void run_i_format(rv_state *s, uint32_t iw, rv_format fmt) {
+    //extract from instruction word
+
     uint32_t rd = get_rd(iw);
     uint32_t func3 = get_funct3(iw);
     uint64_t v1 = s->regs[get_rs1(iw)];
@@ -74,20 +76,19 @@ static void run_i_format(rv_state *s, uint32_t iw, rv_format fmt) {
     int64_t imm = sign_extend(imm_unsigned, 12);
     uint32_t shamt = get_bits(iw, 20, 5);
     int64_t sum = v1 + imm;
-
+	// check function
     switch (func3) {
         case 0b0:  // addi     
 	if (fmt == FMT_I_JALR){
-                s->analysis.j_count++;
+                s->analysis.j_count++;//increment jump count if jalr
                 s->pc = (uint64_t) sum;  // for ret/jalr, pc = rs1 + offset	
 	    }
 	    else if (fmt == FMT_I_ARITH ){
-               // s->analysis.i_count++;
-        	s->analysis.ir_count++;
+        	s->analysis.ir_count++;//increment ir count 
                 s->regs[rd] = sum;  // arithmetic sum
 		}
 	    else if(fmt == FMT_I_LOAD){  	
-		    emu_ld_type(s,iw);
+		    emu_ld_type(s,iw);//run emu ld
 	    }
             break;
 	case 0b011:
@@ -187,28 +188,32 @@ static void run_uj_format(rv_state *s, uint32_t iw) {
 }
 
 void emu_ld_type(rv_state *rsp, uint32_t iw){
+    //extract from instruction word
     uint32_t rd = (iw>>7)&0b11111;
     uint32_t rs1 = (iw>>15)&0b11111;
     uint32_t imm=(iw>>20)&0b11111111111;
     uint32_t funct3= (iw>>12)&0b111;
-    uint64_t signedimm = sign_extend(imm,12);
-    uint64_t t = rsp->regs[rs1]+signedimm;
-    //printf("t: %x\n",t);
+    uint64_t signedimm = sign_extend(imm,12);//sign extend imm
+    uint64_t t = rsp->regs[rs1]+signedimm;//calculate target
    
     
-   //rsp->analysis.ir_count++;
-   // rsp->analysis.i_count++;
-    rsp->analysis.ld_count++;
+    rsp->analysis.ld_count++; //increment load count
+
+    //find which function it is
     switch (funct3){
+	//LB
         case 0b000:
             rsp->regs[rd]=*(uint8_t*)t;
             break;
+	//LH
         case 0b001:
             rsp->regs[rd]=*(uint16_t*)t;
             break;
+	//LW
          case 0b010:
             rsp->regs[rd]=*(uint32_t*)t;
             break;
+	//LD
         case 0b011:
             rsp->regs[rd]=*(uint64_t*)t;
             break;
@@ -220,35 +225,43 @@ void emu_jalr(rv_state *rsp,uint32_t iw){
 	uint32_t rs1 = (iw>>15) & 0b11111;
 	uint64_t val = rsp->regs[rs1];
 	
-        rsp->analysis.j_count++;
+        rsp->analysis.j_count++; //increment jump count
 	rsp->pc = val;
 }
 
 void emu_s_type(rv_state *rsp, uint32_t iw) {
+    //Extract from instruction word
     uint32_t funct3 = get_bits(iw,12,3);
     uint32_t rs1 = get_bits(iw,15,5);
     uint32_t rs2 = get_bits(iw,20,5);
     uint32_t bits1 = get_bits(iw,7,5);
     uint32_t bit2 = get_bits(iw,25,7);
-    uint32_t imm = (bit2<<5)|bits1; 
-    uint32_t signedimm=sign_extend(imm,12);
-    uint64_t t=rsp->regs[rs1]+signedimm;
+ 
+    uint32_t imm = (bit2<<5)|bits1; //or together the immediate value
+    uint32_t signedimm=sign_extend(imm,12); //sign extend the imm value
+    uint64_t t=rsp->regs[rs1]+signedimm;  //calculate target
+ 
     //value in rs1
     //imm = oofsett
 
-    rsp->analysis.st_count++;
+    rsp->analysis.st_count++; //increment store function count
+    
+    //determine which function it is
     switch(funct3){
+	//SB
         case 0b000: 
          *((uint8_t*)t)= (uint8_t)rsp->regs[rs2];
          break;
+	//SH
         case 0b001:
          *((uint16_t*)t)=(uint16_t)rsp->regs[rs2];
           break;
+	//SW
         case 0b010: 
             *((uint32_t*)t)=(uint32_t)rsp->regs[rs2];
             break;
+	//SD
         case 0b011:
-	   // printf("Store Double");
             *((uint64_t*)t)=rsp->regs[rs2];
             break;
         default:unsupported("S-type funct3", funct3);
@@ -260,26 +273,23 @@ void emu_s_type(rv_state *rsp, uint32_t iw) {
 static void rv_one(rv_state *state) {
     uint32_t iw;
 
-    //iw = *((uint32_t*) state->pc);
     iw = cache_lookup(&state->i_cache, (uint64_t) state->pc);
     uint32_t opcode = get_bits(iw, 0, 7);
     
 #if DEBUG
     printf("iw: %x\n", iw);
 #endif
-  //printf("%d\n",opcode);
-    //printf("FMT I LOAD IS :%d\n",(uint32_t)FMT_I_LOAD);
-
+    //increment instruction count
     state->analysis.i_count++;
+    //check opcode
     switch (opcode) {
         case FMT_R:
-   	    state->analysis.ir_count++;
+   	    state->analysis.ir_count++; //increment R analysis count for ir_count
 	    run_r_format(state, iw);
             break;
         case FMT_I_LOAD:
        	case FMT_I_JALR:
         case FMT_I_ARITH:
-            //state->analysis.ir_count++;
 	    run_i_format(state, iw, opcode);
             break;
 	case FMT_S:
